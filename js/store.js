@@ -5,17 +5,20 @@ const KEYS = {
   MEALS: 'ng_meals',
   SETTINGS: 'ng_settings',
   OBSIDIAN_PATH: 'ng_obsidian_path',
+  LINKS: 'ng_links',
 };
 
 let _state = {
   clients: [],
   meals: [],
+  links: [],
   settings: { defaultPAL: 'moderate' },
 };
 
 export function initStore() {
   _state.clients = loadJSON(KEYS.CLIENTS, []);
   _state.meals = loadJSON(KEYS.MEALS, []);
+  _state.links = loadJSON(KEYS.LINKS, []);
   _state.settings = loadJSON(KEYS.SETTINGS, { defaultPAL: 'moderate' });
 }
 
@@ -66,6 +69,22 @@ export function saveMeal(meal) {
 export function deleteMeal(id) {
   _state.meals = _state.meals.filter(m => m.id !== id);
   save(KEYS.MEALS, _state.meals);
+}
+
+// Links
+export function getLinks() { return [..._state.links]; }
+
+export function saveLink(link) {
+  const idx = _state.links.findIndex(l => l.id === link.id);
+  if (idx >= 0) _state.links[idx] = link;
+  else _state.links.unshift(link);
+  save(KEYS.LINKS, _state.links);
+  return link;
+}
+
+export function deleteLink(id) {
+  _state.links = _state.links.filter(l => l.id !== id);
+  save(KEYS.LINKS, _state.links);
 }
 
 // Settings

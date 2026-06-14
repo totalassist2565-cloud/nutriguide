@@ -4,6 +4,7 @@ import { renderDashboard } from '../pages/dashboard.js';
 import { renderClients } from '../pages/clients.js';
 import { renderClientDetail } from '../pages/client-detail.js';
 import { renderMaterials } from '../pages/materials.js';
+import { renderLinks } from '../pages/links.js';
 import { renderConverter } from '../pages/converter.js';
 import { renderMeals } from '../pages/meals.js';
 import { renderObsidian } from '../pages/obsidian.js';
@@ -15,6 +16,7 @@ const ROUTES = {
   '/clients/new':    { render: (p) => renderClientDetail(p, null), title: '新規クライアント' },
   '/clients/:id':    { render: renderClientDetail,  title: 'クライアント詳細' },
   '/materials':      { render: renderMaterials,      title: '説明用資料' },
+  '/links':          { render: renderLinks,          title: '各種リンク' },
   '/converter':      { render: renderConverter,     title: '食品⇄栄養素変換' },
   '/meals':          { render: renderMeals,         title: '食事記録・分析' },
   '/obsidian':       { render: renderObsidian,      title: 'Obsidianノート' },
