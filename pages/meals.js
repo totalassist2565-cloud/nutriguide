@@ -242,14 +242,57 @@ async function openMealModal(clientId, existingMeal, onSave) {
         </div>
 
         <div>
-          <label class="label">食品を追加（栄養計算用）</label>
-          <div class="flex gap-2 mb-2">
-            <input id="m-food-search" class="input flex-1" type="text" placeholder="食品名で検索">
-            <input id="m-food-amount" class="input w-24" type="number" placeholder="g" value="100">
-            <button id="m-food-add" class="btn-secondary flex-shrink-0">追加</button>
+          <label class="label">食品・栄養値を追加</label>
+          <div class="flex gap-1 mb-3 bg-slate-100 p-1 rounded-lg">
+            <button id="tab-search" class="flex-1 text-xs py-1.5 px-3 rounded-md bg-white font-medium text-slate-700 shadow-sm">食品検索</button>
+            <button id="tab-manual" class="flex-1 text-xs py-1.5 px-3 rounded-md text-slate-500">外部アプリから入力</button>
           </div>
-          <div id="m-food-suggest" class="grid grid-cols-2 gap-1 mb-2"></div>
-          <div id="m-items" class="space-y-1"></div>
+          <div id="panel-search">
+            <div class="flex gap-2 mb-2">
+              <input id="m-food-search" class="input flex-1" type="text" placeholder="食品名で検索">
+              <input id="m-food-amount" class="input w-24" type="number" placeholder="g" value="100">
+              <button id="m-food-add" class="btn-secondary flex-shrink-0">追加</button>
+            </div>
+            <div id="m-food-suggest" class="grid grid-cols-2 gap-1 mb-2"></div>
+          </div>
+          <div id="panel-manual" class="hidden">
+            <p class="text-xs text-slate-500 mb-2">外部アプリで計算した栄養値を入力してください。</p>
+            <a href="https://eat-treat.jp/calculation" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-800 bg-brand-50 hover:bg-brand-100 border border-brand-200 px-3 py-1.5 rounded-lg mb-3 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              栄養計算を開く（eat-treat.jp）
+            </a>
+            <div class="grid grid-cols-3 gap-2 mb-3">
+              <div><label class="label text-xs">エネルギー(kcal)</label><input id="mn-energy" class="input" type="number" min="0" placeholder="0"></div>
+              <div><label class="label text-xs">たんぱく質(g)</label><input id="mn-protein" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+              <div><label class="label text-xs">脂質(g)</label><input id="mn-fat" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+              <div><label class="label text-xs">炭水化物(g)</label><input id="mn-carb" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+              <div><label class="label text-xs">食物繊維(g)</label><input id="mn-fiber" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+              <div><label class="label text-xs">食塩相当量(g)</label><input id="mn-salt" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+            </div>
+            <details class="mb-3">
+              <summary class="text-xs text-slate-500 cursor-pointer select-none">▶ ミネラル・ビタミン（任意）</summary>
+              <div class="grid grid-cols-3 gap-2 mt-2">
+                <div><label class="label text-xs">カリウム(mg)</label><input id="mn-potassium" class="input" type="number" min="0" placeholder="0"></div>
+                <div><label class="label text-xs">カルシウム(mg)</label><input id="mn-calcium" class="input" type="number" min="0" placeholder="0"></div>
+                <div><label class="label text-xs">鉄(mg)</label><input id="mn-iron" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+                <div><label class="label text-xs">亜鉛(mg)</label><input id="mn-zinc" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンA(μgRAE)</label><input id="mn-vitA" class="input" type="number" min="0" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンD(μg)</label><input id="mn-vitD" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンB1(mg)</label><input id="mn-vitB1" class="input" type="number" min="0" step="0.01" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンB2(mg)</label><input id="mn-vitB2" class="input" type="number" min="0" step="0.01" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンB6(mg)</label><input id="mn-vitB6" class="input" type="number" min="0" step="0.01" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンB12(μg)</label><input id="mn-vitB12" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+                <div><label class="label text-xs">ビタミンC(mg)</label><input id="mn-vitC" class="input" type="number" min="0" placeholder="0"></div>
+                <div><label class="label text-xs">葉酸(μg)</label><input id="mn-folate" class="input" type="number" min="0" placeholder="0"></div>
+                <div><label class="label text-xs">ナイアシン(mg)</label><input id="mn-niacin" class="input" type="number" min="0" step="0.1" placeholder="0"></div>
+              </div>
+            </details>
+            <div class="flex gap-2">
+              <input id="mn-label" class="input flex-1 text-sm" type="text" placeholder="食事の名前（例: 昼食・栄養君より）">
+              <button id="mn-add" class="btn-primary flex-shrink-0">追加</button>
+            </div>
+          </div>
+          <div id="m-items" class="space-y-1 mt-2"></div>
         </div>
 
         <div id="m-total" class="hidden bg-brand-50 rounded-xl p-3 text-sm text-brand-700"></div>
@@ -340,6 +383,44 @@ async function openMealModal(clientId, existingMeal, onSave) {
     });
   });
 
+  // タブ切替
+  document.getElementById('tab-search').addEventListener('click', () => {
+    document.getElementById('tab-search').className = 'flex-1 text-xs py-1.5 px-3 rounded-md bg-white font-medium text-slate-700 shadow-sm';
+    document.getElementById('tab-manual').className = 'flex-1 text-xs py-1.5 px-3 rounded-md text-slate-500';
+    document.getElementById('panel-search').classList.remove('hidden');
+    document.getElementById('panel-manual').classList.add('hidden');
+  });
+  document.getElementById('tab-manual').addEventListener('click', () => {
+    document.getElementById('tab-manual').className = 'flex-1 text-xs py-1.5 px-3 rounded-md bg-white font-medium text-slate-700 shadow-sm';
+    document.getElementById('tab-search').className = 'flex-1 text-xs py-1.5 px-3 rounded-md text-slate-500';
+    document.getElementById('panel-manual').classList.remove('hidden');
+    document.getElementById('panel-search').classList.add('hidden');
+  });
+
+  // 外部アプリ入力
+  document.getElementById('mn-add').onclick = () => {
+    const g = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const label = document.getElementById('mn-label').value.trim() || '手動入力（外部アプリ）';
+    const item = {
+      id: 'manual', name: label, amount: 0, isManual: true,
+      energy: g('mn-energy'), protein: g('mn-protein'), fat: g('mn-fat'),
+      satFat: 0, carb: g('mn-carb'), fiber: g('mn-fiber'), sugar: 0,
+      salt: g('mn-salt'), potassium: g('mn-potassium'), calcium: g('mn-calcium'),
+      iron: g('mn-iron'), zinc: g('mn-zinc'), vitA: g('mn-vitA'), vitD: g('mn-vitD'),
+      vitB1: g('mn-vitB1'), vitB2: g('mn-vitB2'), vitB6: g('mn-vitB6'),
+      vitB12: g('mn-vitB12'), vitC: g('mn-vitC'), folate: g('mn-folate'), niacin: g('mn-niacin'),
+    };
+    if (item.energy === 0 && item.protein === 0 && item.carb === 0) { toast('栄養値を入力してください'); return; }
+    items.push(item);
+    renderItems();
+    ['mn-energy','mn-protein','mn-fat','mn-carb','mn-fiber','mn-salt','mn-potassium','mn-calcium',
+     'mn-iron','mn-zinc','mn-vitA','mn-vitD','mn-vitB1','mn-vitB2','mn-vitB6','mn-vitB12',
+     'mn-vitC','mn-folate','mn-niacin','mn-label'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    toast('栄養値を追加しました');
+  };
+
   document.getElementById('m-food-add').onclick = () => {
     const name = searchEl.value.trim();
     const amount = parseFloat(document.getElementById('m-food-amount').value) || 100;
@@ -361,7 +442,9 @@ async function openMealModal(clientId, existingMeal, onSave) {
     document.getElementById('m-items').innerHTML = items.map((item, i) => `
       <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5 text-sm">
         <span class="flex-1 text-slate-700">${item.name}</span>
-        <span class="text-slate-500">${item.amount}g</span>
+        ${item.isManual
+          ? `<span class="text-xs text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full">外部入力</span>`
+          : `<span class="text-slate-500">${item.amount}g</span>`}
         <button class="text-slate-400 hover:text-red-500 rm-item" data-i="${i}">×</button>
       </div>`).join('');
     updateTotal();
