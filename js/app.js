@@ -3,7 +3,7 @@
 import { renderDashboard } from '../pages/dashboard.js';
 import { renderClients } from '../pages/clients.js';
 import { renderClientDetail } from '../pages/client-detail.js';
-import { renderCalculator } from '../pages/calculator.js';
+import { renderMaterials } from '../pages/materials.js';
 import { renderConverter } from '../pages/converter.js';
 import { renderMeals } from '../pages/meals.js';
 import { renderObsidian } from '../pages/obsidian.js';
@@ -14,7 +14,7 @@ const ROUTES = {
   '/clients':        { render: renderClients,       title: 'クライアント管理' },
   '/clients/new':    { render: (p) => renderClientDetail(p, null), title: '新規クライアント' },
   '/clients/:id':    { render: renderClientDetail,  title: 'クライアント詳細' },
-  '/calculator':     { render: renderCalculator,    title: '栄養量計算機' },
+  '/materials':      { render: renderMaterials,      title: '説明用資料' },
   '/converter':      { render: renderConverter,     title: '食品⇄栄養素変換' },
   '/meals':          { render: renderMeals,         title: '食事記録・分析' },
   '/obsidian':       { render: renderObsidian,      title: 'Obsidianノート' },

@@ -1,7 +1,8 @@
 import { getClients, getMeals, saveMeal, deleteMeal, getClient, newId, today } from '../js/store.js';
 import { calcTargets, calcAge, sumMealNutrition, calcAchievement, rateBarColor } from '../js/nutrition.js';
-import { FOODS, FOOD_CATEGORIES, NUTRIENT_LABELS, searchFoods } from '../js/foods.js';
-import { toast, confirm, registerChart, destroyChart } from '../js/app.js';
+import { FOODS, NUTRIENT_LABELS, searchFoods } from '../js/foods.js';
+import { toast, confirm } from '../js/app.js';
+import { saveMealImage, getMealImage, deleteMealImage, fileToDataURL, compressImage } from '../js/db.js';
 
 const MEAL_TYPES = ['朝食', '昼食', '夕食', '間食', 'その他'];
 
@@ -11,14 +12,16 @@ export function renderMeals(params) {
 
   document.getElementById('page-content').innerHTML = `
     <div class="max-w-5xl space-y-4">
-      <!-- Client selector -->
-      <div class="card flex items-center gap-4">
+      <div class="card flex items-center gap-4 flex-wrap">
         <label class="label mb-0 whitespace-nowrap">クライアント</label>
         <select id="meal-client-select" class="input max-w-64">
           <option value="">選択してください</option>
           ${clients.map(c => `<option value="${c.id}" ${c.id===preselect?'selected':''}>${c.name}</option>`).join('')}
         </select>
-        <button id="add-meal-btn" class="btn-primary ml-auto hidden">+ 食事を追加</button>
+        <button id="add-meal-btn" class="btn-primary ml-auto hidden flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          食事を追加
+        </button>
       </div>
       <div id="meals-content"></div>
     </div>
@@ -41,11 +44,10 @@ export function renderMeals(params) {
   if (preselect) loadClient(preselect);
 }
 
-function renderMealContent(clientId) {
+async function renderMealContent(clientId) {
   const client = getClient(clientId);
   const meals = getMeals(clientId);
   const container = document.getElementById('meals-content');
-
   if (!client) return;
 
   const age = calcAge(client.birthdate);
@@ -63,23 +65,33 @@ function renderMealContent(clientId) {
     return;
   }
 
-  // Group by date
   const byDate = {};
   meals.forEach(m => { if (!byDate[m.date]) byDate[m.date] = []; byDate[m.date].push(m); });
   const sortedDates = Object.keys(byDate).sort().reverse();
 
-  container.innerHTML = `<div class="space-y-4">
-    ${sortedDates.map(date => renderDateBlock(date, byDate[date], targets, clientId)).join('')}
+  container.innerHTML = `<div class="space-y-4" id="dates-container">
+    ${sortedDates.map(date => renderDateBlock(date, byDate[date], targets)).join('')}
   </div>`;
+
+  // 画像を非同期で読み込んで埋め込む
+  for (const meal of meals) {
+    if (meal.imageId) {
+      const img = await getMealImage(meal.imageId);
+      if (img) {
+        const el = document.getElementById(`meal-img-${meal.id}`);
+        if (el) el.src = img.dataURL;
+      }
+    }
+  }
+
+  attachMealActions(clientId);
 }
 
-function renderDateBlock(date, meals, targets, clientId) {
+function renderDateBlock(date, meals, targets) {
   const dayTotal = sumMealNutrition(meals.flatMap(m => m.items || []));
   const ach = targets ? {
     energy: calcAchievement(dayTotal.energy, targets.eer),
     protein: calcAchievement(dayTotal.protein, targets.protein),
-    fat: calcAchievement(dayTotal.fat, targets.fatDGmax),
-    carb: calcAchievement(dayTotal.carb, targets.carbDGmax),
     fiber: calcAchievement(dayTotal.fiber, targets.fiber),
     salt: calcAchievement(dayTotal.salt, targets.salt),
   } : null;
@@ -89,57 +101,101 @@ function renderDateBlock(date, meals, targets, clientId) {
       <div class="font-semibold text-slate-700">${formatDate(date)}</div>
       ${ach ? `<div class="text-xs text-slate-400">${dayTotal.energy}kcal / 目標${targets.eer}kcal</div>` : ''}
     </div>
-
-    ${ach ? `<div class="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
-      ${miniAch('エネルギー', ach.energy, '%', false)}
-      ${miniAch('たんぱく質', ach.protein, '%', false)}
-      ${miniAch('脂質', ach.fat, '%', true)}
-      ${miniAch('炭水化物', ach.carb, '%', true)}
-      ${miniAch('食物繊維', ach.fiber, '%', false)}
-      ${miniAch('食塩', ach.salt, '%', true)}
+    ${ach ? `<div class="flex gap-2 mb-4 flex-wrap">
+      ${miniAch('エネルギー', ach.energy, false)}
+      ${miniAch('たんぱく質', ach.protein, false)}
+      ${miniAch('食物繊維', ach.fiber, false)}
+      ${miniAch('食塩', ach.salt, true)}
     </div>` : ''}
-
-    <div class="space-y-2">
-      ${meals.map(m => renderMealCard(m, clientId)).join('')}
+    <div class="space-y-3">
+      ${meals.map(m => renderMealCard(m)).join('')}
     </div>
   </div>`;
 }
 
-function miniAch(label, pct, unit, lowerIsBetter) {
-  if (pct === null) return `<div class="bg-slate-50 rounded-lg p-2 text-center"><div class="text-xs text-slate-400">${label}</div><div class="text-xs text-slate-400">-</div></div>`;
+function miniAch(label, pct, lowerIsBetter) {
+  if (pct === null) return '';
   const color = rateBarColor(pct, lowerIsBetter);
-  const displayPct = Math.min(pct, 999);
-  return `<div class="bg-slate-50 rounded-lg p-2 text-center">
-    <div class="text-xs text-slate-500 mb-1">${label}</div>
-    <div class="text-sm font-bold" style="color:${color}">${displayPct}%</div>
+  return `<div class="bg-slate-50 rounded-lg px-3 py-2 text-center min-w-16">
+    <div class="text-xs text-slate-500">${label}</div>
+    <div class="text-sm font-bold" style="color:${color}">${Math.min(pct, 999)}%</div>
   </div>`;
 }
 
-function renderMealCard(meal, clientId) {
+function renderMealCard(meal) {
   const total = sumMealNutrition(meal.items || []);
   const hasItems = (meal.items || []).length > 0;
-  return `<div class="border border-slate-100 rounded-xl p-3" id="meal-${meal.id}">
-    <div class="flex items-center justify-between mb-2">
-      <div class="flex items-center gap-2">
-        <span class="badge bg-brand-100 text-brand-700">${meal.mealType || '食事'}</span>
-        ${hasItems ? `<span class="text-sm text-slate-500">${total.energy}kcal · P${total.protein}g · F${total.fat}g · C${total.carb}g</span>` : ''}
-      </div>
-      <div class="flex gap-1">
-        <button class="edit-meal p-1.5 rounded text-slate-400 hover:text-brand-600 hover:bg-brand-50" data-id="${meal.id}" data-cid="${clientId}" title="編集">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-        </button>
-        <button class="del-meal p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" data-id="${meal.id}" data-cid="${clientId}" title="削除">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-        </button>
+  const hasImage = !!meal.imageId;
+
+  return `<div class="border border-slate-100 rounded-xl p-3 group" id="meal-${meal.id}">
+    <div class="flex items-start gap-3">
+      <!-- 画像サムネイル -->
+      ${hasImage ? `<div class="flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden bg-slate-100 cursor-pointer view-meal-img" data-id="${meal.id}">
+        <img id="meal-img-${meal.id}" src="" alt="" class="w-full h-full object-cover">
+      </div>` : ''}
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between mb-1.5">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="badge bg-brand-100 text-brand-700">${meal.mealType || '食事'}</span>
+            ${hasItems ? `<span class="text-sm text-slate-500">${total.energy}kcal · P${total.protein}g · F${total.fat}g · C${total.carb}g</span>` : ''}
+          </div>
+          <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button class="edit-meal p-1.5 rounded text-slate-400 hover:text-brand-600 hover:bg-brand-50" data-id="${meal.id}" title="編集">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </button>
+            <button class="del-meal p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" data-id="${meal.id}" title="削除">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        ${meal.freeText ? `<p class="text-sm text-slate-600 mb-1.5">${esc(meal.freeText)}</p>` : ''}
+        ${hasItems ? `<div class="text-xs text-slate-500 flex flex-wrap gap-1">
+          ${meal.items.map(i => `<span class="bg-slate-100 px-2 py-0.5 rounded-full">${i.name} ${i.amount}g</span>`).join('')}
+        </div>` : ''}
+        ${meal.claudeResult ? `<div class="mt-2 bg-brand-50 rounded-lg p-2 text-xs text-brand-700 whitespace-pre-wrap">${esc(meal.claudeResult)}</div>` : ''}
       </div>
     </div>
-    ${meal.freeText ? `<p class="text-sm text-slate-600 italic mb-2">${meal.freeText}</p>` : ''}
-    ${hasItems ? `<div class="text-xs text-slate-500 flex flex-wrap gap-1">${meal.items.map(i => `<span class="bg-slate-100 px-2 py-0.5 rounded-full">${i.name} ${i.amount}g</span>`).join('')}</div>` : ''}
   </div>`;
 }
 
-function openMealModal(clientId, existingMeal, onSave) {
-  const meal = existingMeal || { id: newId(), clientId, date: today(), mealType: '朝食', items: [], freeText: '' };
+function attachMealActions(clientId) {
+  document.querySelectorAll('.edit-meal').forEach(btn => {
+    btn.onclick = () => {
+      const meal = getMeals(clientId).find(m => m.id === btn.dataset.id);
+      if (meal) openMealModal(clientId, meal, () => renderMealContent(clientId));
+    };
+  });
+  document.querySelectorAll('.del-meal').forEach(btn => {
+    btn.onclick = async () => {
+      if (!await confirm('この食事記録を削除しますか？')) return;
+      const meal = getMeals(clientId).find(m => m.id === btn.dataset.id);
+      if (meal?.imageId) await deleteMealImage(meal.imageId);
+      deleteMeal(btn.dataset.id);
+      renderMealContent(clientId);
+      toast('削除しました');
+    };
+  });
+  document.querySelectorAll('.view-meal-img').forEach(btn => {
+    btn.onclick = async () => {
+      const meal = getMeals(clientId).find(m => m.id === btn.dataset.id);
+      if (!meal?.imageId) return;
+      const img = await getMealImage(meal.imageId);
+      if (!img) return;
+      openImageViewer(img.dataURL, meal.mealType + ' ' + meal.date);
+    };
+  });
+}
+
+async function openMealModal(clientId, existingMeal, onSave) {
+  const meal = existingMeal || { id: newId(), clientId, date: today(), mealType: '朝食', items: [], freeText: '', imageId: null, claudeResult: '' };
+
+  // 既存画像を読み込む
+  let currentImageDataURL = null;
+  let pendingImageFile = null;
+  if (meal.imageId) {
+    const stored = await getMealImage(meal.imageId);
+    if (stored) currentImageDataURL = stored.dataURL;
+  }
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
@@ -159,22 +215,46 @@ function openMealModal(clientId, existingMeal, onSave) {
             </select>
           </div>
         </div>
+
+        <!-- 画像アップロードエリア -->
         <div>
-          <label class="label">自由入力（テキストで記録）</label>
-          <textarea id="m-free" class="input" rows="2" placeholder="例: ご飯150g、みそ汁1杯、焼き鮭100g...">${meal.freeText || ''}</textarea>
+          <label class="label">食事の写真・スクリーンショット（任意）</label>
+          <div id="img-zone" class="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center cursor-pointer hover:border-brand-300 hover:bg-brand-50 transition-colors relative">
+            ${currentImageDataURL
+              ? `<img id="preview-img" src="${currentImageDataURL}" class="max-h-48 mx-auto rounded-lg object-contain">`
+              : `<div id="img-placeholder">
+                  <svg class="w-10 h-10 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                  <p class="text-sm text-slate-400">クリックまたはドラッグ＆ドロップで画像をアップロード</p>
+                  <p class="text-xs text-slate-300 mt-1">JPG / PNG / スクリーンショット対応</p>
+                </div>`
+            }
+            <input id="img-input" type="file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">
+          </div>
+          <div id="claude-analyze-section" class="${currentImageDataURL ? '' : 'hidden'} mt-2">
+            ${renderClaudeAnalyzeUI(meal.claudeResult || '')}
+          </div>
+          ${currentImageDataURL ? `<button id="remove-img" class="text-xs text-red-400 hover:text-red-600 mt-1">✕ 画像を削除</button>` : ''}
         </div>
+
+        <div>
+          <label class="label">自由入力メモ</label>
+          <textarea id="m-free" class="input" rows="2" placeholder="例: ご飯150g、みそ汁1杯...">${esc(meal.freeText || '')}</textarea>
+        </div>
+
         <div>
           <label class="label">食品を追加（栄養計算用）</label>
           <div class="flex gap-2 mb-2">
-            <input id="m-food-search" class="input flex-1" type="text" placeholder="食品名を検索">
+            <input id="m-food-search" class="input flex-1" type="text" placeholder="食品名で検索">
             <input id="m-food-amount" class="input w-24" type="number" placeholder="g" value="100">
             <button id="m-food-add" class="btn-secondary flex-shrink-0">追加</button>
           </div>
           <div id="m-food-suggest" class="grid grid-cols-2 gap-1 mb-2"></div>
           <div id="m-items" class="space-y-1"></div>
         </div>
+
         <div id="m-total" class="hidden bg-brand-50 rounded-xl p-3 text-sm text-brand-700"></div>
       </div>
+
       <div class="flex gap-3 mt-6">
         <button id="m-save" class="btn-primary flex-1">保存</button>
         <button id="m-cancel" class="btn-secondary">キャンセル</button>
@@ -186,45 +266,77 @@ function openMealModal(clientId, existingMeal, onSave) {
   let items = [...(meal.items || [])];
   renderItems();
 
-  function renderItems() {
-    const el = document.getElementById('m-items');
-    el.innerHTML = items.map((item, i) => `
-      <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5 text-sm">
-        <span class="flex-1 text-slate-700">${item.name}</span>
-        <span class="text-slate-500">${item.amount}g</span>
-        <button class="text-slate-400 hover:text-red-500 remove-item" data-i="${i}">×</button>
-      </div>`).join('');
-    updateTotal();
-    document.querySelectorAll('.remove-item').forEach(btn => {
-      btn.onclick = () => { items.splice(parseInt(btn.dataset.i), 1); renderItems(); };
+  // 画像アップロード処理
+  const imgInput = document.getElementById('img-input');
+  imgInput.addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    pendingImageFile = file;
+    const compressed = await compressImage(file, 1200, 0.85);
+    currentImageDataURL = await fileToDataURL(compressed);
+    document.getElementById('img-zone').innerHTML = `
+      <img id="preview-img" src="${currentImageDataURL}" class="max-h-48 mx-auto rounded-lg object-contain">
+      <input id="img-input-new" type="file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">`;
+    document.getElementById('img-zone').insertAdjacentHTML('afterend', `<button id="remove-img" class="text-xs text-red-400 hover:text-red-600 mt-1">✕ 画像を削除</button>`);
+    document.getElementById('claude-analyze-section').classList.remove('hidden');
+    document.getElementById('claude-analyze-section').innerHTML = renderClaudeAnalyzeUI('');
+    attachClaudeUI();
+
+    document.getElementById('img-input-new')?.addEventListener('change', async ev => {
+      const f = ev.target.files[0]; if (!f) return;
+      pendingImageFile = f;
+      const c2 = await compressImage(f, 1200, 0.85);
+      currentImageDataURL = await fileToDataURL(c2);
+      document.getElementById('preview-img').src = currentImageDataURL;
+    });
+    attachRemoveImg();
+  });
+
+  function attachRemoveImg() {
+    document.getElementById('remove-img')?.addEventListener('click', () => {
+      pendingImageFile = null;
+      currentImageDataURL = null;
+      meal.imageId = null;
+      document.getElementById('img-zone').innerHTML = `
+        <div id="img-placeholder">
+          <svg class="w-10 h-10 text-slate-300 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <p class="text-sm text-slate-400">クリックまたはドラッグ＆ドロップで画像をアップロード</p>
+        </div>
+        <input id="img-input" type="file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">`;
+      document.getElementById('claude-analyze-section').classList.add('hidden');
+      document.getElementById('remove-img')?.remove();
+      // re-attach input
+      document.getElementById('img-input')?.addEventListener('change', async e => {
+        const file = e.target.files[0]; if (!file) return;
+        pendingImageFile = file;
+        const comp = await compressImage(file, 1200, 0.85);
+        currentImageDataURL = await fileToDataURL(comp);
+        document.getElementById('img-zone').innerHTML = `
+          <img id="preview-img" src="${currentImageDataURL}" class="max-h-48 mx-auto rounded-lg object-contain">
+          <input id="img-input-new" type="file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer">`;
+        document.getElementById('img-zone').insertAdjacentHTML('afterend', `<button id="remove-img" class="text-xs text-red-400 hover:text-red-600 mt-1">✕ 画像を削除</button>`);
+        document.getElementById('claude-analyze-section').classList.remove('hidden');
+        document.getElementById('claude-analyze-section').innerHTML = renderClaudeAnalyzeUI('');
+        attachClaudeUI();
+        attachRemoveImg();
+      });
     });
   }
+  attachRemoveImg();
+  attachClaudeUI();
 
-  function updateTotal() {
-    if (items.length === 0) { document.getElementById('m-total').classList.add('hidden'); return; }
-    const total = sumMealNutrition(items);
-    document.getElementById('m-total').classList.remove('hidden');
-    document.getElementById('m-total').innerHTML = `合計: ${total.energy}kcal · たんぱく質${total.protein}g · 脂質${total.fat}g · 炭水化物${total.carb}g · 食塩${total.salt}g`;
-  }
-
+  // 食品検索
   const searchEl = document.getElementById('m-food-search');
   searchEl.addEventListener('input', () => {
     const q = searchEl.value.trim();
     const suggest = document.getElementById('m-food-suggest');
     if (!q) { suggest.innerHTML = ''; return; }
-    const results = searchFoods(q, 8);
-    suggest.innerHTML = results.map(f => `
+    suggest.innerHTML = searchFoods(q, 8).map(f => `
       <button class="suggest-pick text-left p-2 rounded-lg border border-slate-200 hover:border-brand-400 text-xs" data-id="${f.id}">
-        <div class="font-medium">${f.name}</div>
-        <div class="text-slate-400">${f.energy}kcal/100g</div>
+        <div class="font-medium">${f.name}</div><div class="text-slate-400">${f.energy}kcal/100g</div>
       </button>`).join('');
     suggest.querySelectorAll('.suggest-pick').forEach(btn => {
-      btn.onclick = () => {
-        const food = FOODS.find(f => f.id === btn.dataset.id);
-        searchEl.value = food.name;
-        suggest.innerHTML = '';
-        document.getElementById('m-food-amount').focus();
-      };
+      btn.onclick = () => { const food = FOODS.find(f => f.id === btn.dataset.id); searchEl.value = food.name; suggest.innerHTML = ''; };
     });
   });
 
@@ -234,23 +346,58 @@ function openMealModal(clientId, existingMeal, onSave) {
     if (!name) return;
     const food = FOODS.find(f => f.name === name);
     if (food) {
-      const ratio = amount / 100;
-      const item = { ...food };
-      Object.keys(item).forEach(k => { if (typeof item[k] === 'number' && k !== 'amount') item[k] = Math.round(item[k] * ratio * 100) / 100; });
+      const r = amount / 100;
+      const item = Object.fromEntries(Object.entries(food).map(([k,v]) => [k, typeof v === 'number' && k !== 'amount' ? Math.round(v * r * 100) / 100 : v]));
       item.amount = amount;
       items.push(item);
     } else {
-      items.push({ id: 'custom', name, amount, energy:0,protein:0,fat:0,carb:0,fiber:0,sugar:0,salt:0,potassium:0,calcium:0,iron:0,zinc:0,vitA:0,vitD:0,vitB1:0,vitB2:0,vitB6:0,vitB12:0,vitC:0,folate:0,niacin:0 });
+      items.push({ id:'custom', name, amount, energy:0, protein:0, fat:0, carb:0, fiber:0, sugar:0, salt:0, potassium:0, calcium:0, iron:0, zinc:0, vitA:0, vitD:0, vitB1:0, vitB2:0, vitB6:0, vitB12:0, vitC:0, folate:0, niacin:0 });
     }
     searchEl.value = '';
     renderItems();
   };
 
-  document.getElementById('m-save').onclick = () => {
+  function renderItems() {
+    document.getElementById('m-items').innerHTML = items.map((item, i) => `
+      <div class="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-1.5 text-sm">
+        <span class="flex-1 text-slate-700">${item.name}</span>
+        <span class="text-slate-500">${item.amount}g</span>
+        <button class="text-slate-400 hover:text-red-500 rm-item" data-i="${i}">×</button>
+      </div>`).join('');
+    updateTotal();
+    document.querySelectorAll('.rm-item').forEach(btn => {
+      btn.onclick = () => { items.splice(parseInt(btn.dataset.i), 1); renderItems(); };
+    });
+  }
+
+  function updateTotal() {
+    const total = document.getElementById('m-total');
+    if (items.length === 0) { total.classList.add('hidden'); return; }
+    const s = sumMealNutrition(items);
+    total.classList.remove('hidden');
+    total.innerHTML = `合計: ${s.energy}kcal · たんぱく質${s.protein}g · 脂質${s.fat}g · 炭水化物${s.carb}g · 食塩${s.salt}g`;
+  }
+
+  // 保存
+  document.getElementById('m-save').onclick = async () => {
     meal.date = document.getElementById('m-date').value;
     meal.mealType = document.getElementById('m-type').value;
     meal.freeText = document.getElementById('m-free').value;
     meal.items = items;
+    meal.claudeResult = document.getElementById('claude-result-input')?.value || meal.claudeResult || '';
+
+    // 画像を保存
+    if (pendingImageFile) {
+      const imgId = meal.imageId || newId();
+      const compressed = await compressImage(pendingImageFile, 1200, 0.85);
+      const dataURL = await fileToDataURL(compressed);
+      await saveMealImage({ id: imgId, dataURL, mealId: meal.id });
+      meal.imageId = imgId;
+    } else if (!currentImageDataURL && meal.imageId) {
+      await deleteMealImage(meal.imageId);
+      meal.imageId = null;
+    }
+
     saveMeal(meal);
     overlay.remove();
     onSave?.();
@@ -259,43 +406,62 @@ function openMealModal(clientId, existingMeal, onSave) {
 
   document.getElementById('m-cancel').onclick = () => overlay.remove();
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
 
-  // Attach edit/delete after render
-  document.addEventListener('click', function handler(e) {
-    if (e.target.closest('.edit-meal')) {
-      const btn = e.target.closest('.edit-meal');
-      const mid = btn.dataset.id;
-      const cid = btn.dataset.cid;
-      const m = getMeals(cid).find(x => x.id === mid);
-      if (m) { overlay.remove(); document.removeEventListener('click', handler); openMealModal(cid, m, onSave); }
-    }
-    if (e.target.closest('.del-meal')) {
-      const btn = e.target.closest('.del-meal');
-      confirm('この食事記録を削除しますか？').then(ok => {
-        if (ok) { deleteMeal(btn.dataset.id); onSave?.(); toast('削除しました'); }
-      });
-    }
+function renderClaudeAnalyzeUI(existingResult) {
+  return `
+    <div class="bg-gradient-to-r from-brand-50 to-teal-50 rounded-xl p-4 border border-brand-100">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="w-6 h-6 bg-brand-600 rounded-md flex items-center justify-center text-white text-xs font-bold">AI</div>
+        <span class="text-sm font-semibold text-brand-800">Claudeで食事内容を解析</span>
+      </div>
+      <p class="text-xs text-slate-500 mb-3">①「プロンプトをコピー」→ ② <a href="https://claude.ai" target="_blank" class="text-brand-600 underline">claude.ai</a> で画像と一緒に送信 → ③ 返答を下に貼り付け</p>
+      <div class="flex gap-2 mb-3">
+        <button id="copy-analyze-prompt" class="btn-primary text-xs flex-1">① プロンプトをコピー</button>
+        <a href="https://claude.ai" target="_blank" class="btn-secondary text-xs flex-1 text-center">② claude.ai を開く</a>
+      </div>
+      <div>
+        <label class="label text-xs">③ Claudeの返答を貼り付け（そのまま保存されます）</label>
+        <textarea id="claude-result-input" class="input text-xs" rows="3" placeholder="Claudeが解析した食事内容をここに貼り付けてください...">${existingResult}</textarea>
+      </div>
+    </div>`;
+}
+
+function attachClaudeUI() {
+  document.getElementById('copy-analyze-prompt')?.addEventListener('click', () => {
+    const prompt = `添付した食事の写真・スクリーンショットから、食べている食品と大まかな量（グラム数）を読み取ってください。
+
+以下のフォーマットで回答してください：
+【食品名】【量（g）】
+例：
+・白米 150g
+・味噌汁 200ml
+・焼き鮭 80g
+
+量が不明な場合は「（推定）」と付けてください。
+スクリーンショットがアプリの記録画面の場合は、そのまま読み取ってください。`;
+    navigator.clipboard.writeText(prompt).then(() => toast('プロンプトをコピーしました！claude.aiに画像と一緒に送ってください'));
   });
+}
+
+function openImageViewer(dataURL, title) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.background = 'rgba(0,0,0,0.9)';
+  overlay.innerHTML = `<div class="max-w-3xl w-full mx-4 text-center">
+    <p class="text-white/70 text-sm mb-3">${esc(title)}</p>
+    <img src="${dataURL}" class="max-h-[80vh] mx-auto rounded-xl object-contain">
+    <button class="mt-4 btn-secondary close-v">閉じる</button>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.close-v').onclick = () => overlay.remove();
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
 function formatDate(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
-  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  const days = ['日','月','火','水','木','金','土'];
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${days[d.getDay()]}）`;
 }
 
-// Re-attach edit/delete after content render
-document.addEventListener('click', function(e) {
-  if (e.target.closest('.edit-meal')) {
-    const btn = e.target.closest('.edit-meal');
-    const clientId = btn.dataset.cid;
-    const mealId = btn.dataset.id;
-    const meal = getMeals(clientId).find(m => m.id === mealId);
-    if (meal) openMealModal(clientId, meal, () => renderMealContent(clientId));
-  }
-  if (e.target.closest('.del-meal')) {
-    const btn = e.target.closest('.del-meal');
-    confirm('この記録を削除しますか？').then(ok => {
-      if (ok) { deleteMeal(btn.dataset.id); renderMealContent(btn.dataset.cid); toast('削除しました'); }
-    });
-  }
-});
+function esc(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
